@@ -5,6 +5,7 @@ build-backend = "maturin"
 [project]
 name = "gridmap"
 requires-python = ">=3.9"
+dependencies = ["openpyxl"]
 dynamic = ["version"]
 
 [tool.maturin]
