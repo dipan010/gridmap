@@ -1,3 +1,6 @@
-from gridmap._core import version
+"""gridmap — spatial document graph engine for credential detection."""
 
-__all__ = ["version"]
+from gridmap._core import version
+from gridmap.api import GridDoc, Relationship, load
+
+__all__ = ["load", "GridDoc", "Relationship", "version"]
