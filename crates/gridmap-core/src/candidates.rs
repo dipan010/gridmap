@@ -8,20 +8,18 @@ use crate::types::*;
 
 // ---------- WIN 3: compile regex patterns ONCE ----------
 
-static INLINE_CREDENTIAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static INLINE_CREDENTIAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)(?:password|pwd|pass|passwd|passwort|contraseña|mot_de_passe|senha|пароль)[\s:=]+(.+)",
     )
     .unwrap()
 });
 
-#[allow(dead_code)] // Used in later phases for formula analysis
-static FORMULA_STRING_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static FORMULA_STRING_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#""([^"]+)""#).unwrap()
 });
 
-#[allow(dead_code)] // Used in later phases for formula analysis
-static FORMULA_KEYWORD_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static FORMULA_KEYWORD_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:password|pwd|pass|passwd|secret|token|key)\s*$").unwrap()
 });
 
