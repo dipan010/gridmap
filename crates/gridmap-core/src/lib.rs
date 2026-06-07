@@ -2,6 +2,7 @@ pub mod candidates;
 pub mod detection;
 pub mod features;
 pub mod inference;
+pub mod pipeline;
 pub mod regions;
 pub mod scoring;
 pub mod spatial;
