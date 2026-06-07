@@ -1,0 +1,45 @@
+{
+  "01_adjacent_right.xlsx": [
+    {"key": "Password", "value": "s3cRet!99", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "02_adjacent_below.xlsx": [
+    {"key": "Password", "value": "MyP@ss123", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "03_inline_same_cell.xlsx": [
+    {"key": "password", "value": "hunter2!", "min_confidence": 250, "reason_contains": "inline_same_cell"}
+  ],
+  "04_formula_concat.xlsx": [
+    {"key": "password", "value": "S3cure#1", "min_confidence": 230, "reason_contains": "formula"}
+  ],
+  "05_comment_on_header.xlsx": [
+    {"key": "Password", "value": "xK9$mL2p", "min_confidence": 230, "reason_contains": "comment_on_header"}
+  ],
+  "06_comment_inline.xlsx": [
+    {"key": "password", "value": "abc12345", "min_confidence": 220, "reason_contains": "comment_contains"}
+  ],
+  "07_split_password.xlsx": [
+    {"key": "Password", "value": "abcdef", "min_confidence": 200, "reason_contains": "split_password"}
+  ],
+  "08_multi_sheet.xlsx": [
+    {"key": "Password", "value": "Sheet1Pw!", "min_confidence": 120, "reason_contains": "distance"},
+    {"key": "Token", "value": "tk_9Xf$2m", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "09_hidden_sheet.xlsx": [
+    {"key": "Password", "value": "H1dd3n!x", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "10_with_context.xlsx": [
+    {"key": "Password", "value": "Str0ng!Pw", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "11_noise.xlsx": [
+    {"key": "Password", "value": "Bu1r3d!x", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "12_multilingual.xlsx": [
+    {"key": "Passwort", "value": "Ge#rm4n1", "min_confidence": 120, "reason_contains": "distance"},
+    {"key": "Contraseña", "value": "Sp@n1sh!", "min_confidence": 120, "reason_contains": "distance"},
+    {"key": "パスワード", "value": "Jp_T0k3n", "min_confidence": 120, "reason_contains": "distance"}
+  ],
+  "13_no_credentials.xlsx": [],
+  "14_merged_cells.xlsx": [
+    {"key": "Password", "value": "M3rg3d!x", "min_confidence": 120, "reason_contains": "distance"}
+  ]
+}
