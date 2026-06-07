@@ -52,7 +52,12 @@ pub const FLAG_IS_SHORT: u16 = 0b0001_0000;
 pub const FLAG_IS_NUMERIC: u16 = 0b0010_0000;
 pub const FLAG_IS_ALPHA: u16 = 0b0100_0000;
 pub const FLAG_HAS_COLON: u16 = 0b1000_0000;
-pub const FLAG_IS_EMPTY: u16 = 0b1_0000_0000;
+pub const FLAG_IS_EMPTY: u16 = 0b0_0001_0000_0000;
+pub const FLAG_HAS_FORMULA: u16 = 0b0_0010_0000_0000;
+pub const FLAG_IS_PASSWORD_HEADER: u16 = 0b0_0100_0000_0000;
+pub const FLAG_IS_USERNAME_HEADER: u16 = 0b0_1000_0000_0000;
+pub const FLAG_IS_URL_HEADER: u16 = 0b01_0000_0000_0000;
+pub const FLAG_HAS_COMMENT: u16 = 0b10_0000_0000_0000;
 
 #[cfg(test)]
 mod tests {
@@ -94,7 +99,12 @@ mod tests {
             | FLAG_IS_NUMERIC
             | FLAG_IS_ALPHA
             | FLAG_HAS_COLON
-            | FLAG_IS_EMPTY;
-        assert_eq!(all, 0b1_1111_1111);
+            | FLAG_IS_EMPTY
+            | FLAG_HAS_FORMULA
+            | FLAG_IS_PASSWORD_HEADER
+            | FLAG_IS_USERNAME_HEADER
+            | FLAG_IS_URL_HEADER
+            | FLAG_HAS_COMMENT;
+        assert_eq!(all, 0b11_1111_1111_1111);
     }
 }

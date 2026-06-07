@@ -1,3 +1,6 @@
+pub mod candidates;
+pub mod features;
+pub mod spatial;
 pub mod store;
 pub mod types;
 

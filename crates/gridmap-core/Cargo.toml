@@ -6,3 +6,4 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 ahash = "0.8"
+regex = "1"

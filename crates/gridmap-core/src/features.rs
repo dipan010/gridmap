@@ -1,0 +1,385 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
+
+use crate::store::CellStore;
+use crate::types::*;
+
+// ---------- Header keyword sets ----------
+
+static PASSWORD_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "password",
+        "pwd",
+        "pass",
+        "passwd",
+        "passphrase",
+        "passcode",
+        "passwort",
+        "contraseña",
+        "motdepasse",
+        "senha",
+        "пароль",
+        "パスワード",
+        "密码",
+        "비밀번호",
+        "wachtwoord",
+        "hasło",
+        "lösenord",
+        "secretkey",
+        "secret",
+        "apikey",
+        "apikeypassword",
+        "token",
+        "accesstoken",
+        "authtoken",
+    ])
+});
+
+static USERNAME_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "username",
+        "user",
+        "login",
+        "email",
+        "emailaddress",
+        "email",
+        "account",
+        "accountname",
+        "userid",
+        "userid",
+        "username",
+        "usuario",
+        "benutzername",
+        "utilisateur",
+        "utente",
+        "gebruiker",
+        "użytkownik",
+        "användare",
+    ])
+});
+
+static URL_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        "url", "uri", "link", "website", "endpoint", "server", "host", "site", "homepage",
+        "webpage", "href", "baseurl",
+    ])
+});
+
+// ---------- Normalize ----------
+
+/// Lowercase, strip, collapse [\s_\-:=]+ to nothing.
+pub fn normalize(value: &str) -> String {
+    value
+        .to_lowercase()
+        .chars()
+        .filter(|c| !matches!(c, ' ' | '\t' | '\n' | '\r' | '_' | '-' | ':' | '='))
+        .collect()
+}
+
+// ---------- Entropy ----------
+
+/// Shannon entropy: -Σ (count/len) * log2(count/len)
+pub fn compute_entropy(text: &str) -> f32 {
+    let len = text.len();
+    if len == 0 {
+        return 0.0;
+    }
+
+    let mut counts = [0u32; 256];
+    for &b in text.as_bytes() {
+        counts[b as usize] += 1;
+    }
+
+    let len_f = len as f32;
+    let mut entropy = 0.0_f32;
+    for &count in &counts {
+        if count > 0 {
+            let p = count as f32 / len_f;
+            entropy -= p * p.log2();
+        }
+    }
+
+    entropy
+}
+
+// ---------- Feature precomputation ----------
+
+/// Single-pass feature computation over all cells in the store.
+pub fn precompute_features(store: &mut CellStore) {
+    let entropy_prefilter = FLAG_HAS_UPPER | FLAG_HAS_LOWER | FLAG_HAS_DIGIT;
+
+    for i in 0..store.len() {
+        let value = &store.values[i];
+        let formula = &store.formulas[i];
+
+        // WIN 2: normalize once, store result
+        let norm = normalize(value);
+        let mut flags: u16 = 0;
+
+        // Character-class flags
+        if value.is_empty() {
+            flags |= FLAG_IS_EMPTY;
+        } else {
+            let mut has_upper = false;
+            let mut has_lower = false;
+            let mut has_digit = false;
+            let mut has_special = false;
+            let mut has_alpha = false;
+            let mut all_alpha = true;
+            let mut all_numeric = true;
+
+            for ch in value.chars() {
+                if ch.is_uppercase() {
+                    has_upper = true;
+                    has_alpha = true;
+                } else if ch.is_lowercase() {
+                    has_lower = true;
+                    has_alpha = true;
+                }
+                if ch.is_ascii_digit() {
+                    has_digit = true;
+                } else {
+                    all_numeric = false;
+                }
+                if !ch.is_alphanumeric() && !ch.is_whitespace() {
+                    has_special = true;
+                }
+                if !ch.is_alphabetic() {
+                    all_alpha = false;
+                }
+            }
+
+            if has_upper {
+                flags |= FLAG_HAS_UPPER;
+            }
+            if has_lower {
+                flags |= FLAG_HAS_LOWER;
+            }
+            if has_digit {
+                flags |= FLAG_HAS_DIGIT;
+            }
+            if has_special {
+                flags |= FLAG_HAS_SPECIAL;
+            }
+            if value.len() < MIN_CANDIDATE_LENGTH {
+                flags |= FLAG_IS_SHORT;
+            }
+            if all_numeric && has_digit {
+                flags |= FLAG_IS_NUMERIC;
+            }
+            if all_alpha && has_alpha {
+                flags |= FLAG_IS_ALPHA;
+            }
+            if value.contains(':') {
+                flags |= FLAG_HAS_COLON;
+            }
+        }
+
+        // Formula flag
+        if !formula.is_empty() {
+            flags |= FLAG_HAS_FORMULA;
+        }
+
+        // Comment flag
+        if !store.comments[i].is_empty() {
+            flags |= FLAG_HAS_COMMENT;
+        }
+
+        // Header detection against normalized value
+        if PASSWORD_HEADERS.contains(norm.as_str()) {
+            flags |= FLAG_IS_PASSWORD_HEADER;
+        }
+        if USERNAME_HEADERS.contains(norm.as_str()) {
+            flags |= FLAG_IS_USERNAME_HEADER;
+        }
+        if URL_HEADERS.contains(norm.as_str()) {
+            flags |= FLAG_IS_URL_HEADER;
+        }
+
+        // GAP 3 FIX: entropy only when len >= ENTROPY_MIN_LENGTH
+        // AND has upper + lower + digit
+        let ent = if value.len() >= ENTROPY_MIN_LENGTH
+            && (flags & entropy_prefilter) == entropy_prefilter
+        {
+            compute_entropy(value)
+        } else {
+            0.0
+        };
+
+        store.normalized_values[i] = norm;
+        store.feature_flags[i] = flags;
+        store.entropy[i] = ent;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::RawCell;
+
+    // ---------- normalize ----------
+
+    #[test]
+    fn normalize_spaces() {
+        assert_eq!(normalize("Pass Word"), "password");
+    }
+
+    #[test]
+    fn normalize_underscore() {
+        assert_eq!(normalize("PASS_WORD"), "password");
+    }
+
+    #[test]
+    fn normalize_dash_colon() {
+        assert_eq!(normalize("pass-word:"), "password");
+    }
+
+    #[test]
+    fn normalize_equals() {
+        assert_eq!(normalize("key=value"), "keyvalue");
+    }
+
+    // ---------- header sets ----------
+
+    #[test]
+    fn password_headers_contains_password() {
+        assert!(PASSWORD_HEADERS.contains("password"));
+    }
+
+    #[test]
+    fn password_headers_contains_multilingual() {
+        assert!(PASSWORD_HEADERS.contains("contraseña"));
+        assert!(PASSWORD_HEADERS.contains("passwort"));
+        assert!(PASSWORD_HEADERS.contains("пароль"));
+        assert!(PASSWORD_HEADERS.contains("パスワード"));
+        assert!(PASSWORD_HEADERS.contains("密码"));
+        assert!(PASSWORD_HEADERS.contains("비밀번호"));
+        assert!(PASSWORD_HEADERS.contains("wachtwoord"));
+        assert!(PASSWORD_HEADERS.contains("hasło"));
+        assert!(PASSWORD_HEADERS.contains("lösenord"));
+        assert!(PASSWORD_HEADERS.contains("senha"));
+    }
+
+    #[test]
+    fn password_headers_contains_motdepasse() {
+        // "mot de passe" normalizes to "motdepasse"
+        assert!(PASSWORD_HEADERS.contains("motdepasse"));
+    }
+
+    #[test]
+    fn username_headers_basic() {
+        assert!(USERNAME_HEADERS.contains("username"));
+        assert!(USERNAME_HEADERS.contains("email"));
+        assert!(USERNAME_HEADERS.contains("usuario"));
+        assert!(USERNAME_HEADERS.contains("benutzername"));
+    }
+
+    #[test]
+    fn url_headers_basic() {
+        assert!(URL_HEADERS.contains("url"));
+        assert!(URL_HEADERS.contains("endpoint"));
+        assert!(URL_HEADERS.contains("host"));
+    }
+
+    // ---------- entropy ----------
+
+    #[test]
+    fn entropy_low_for_repeated() {
+        let e = compute_entropy("aaaa");
+        assert!(e < 1.0, "entropy of 'aaaa' should be < 1.0, got {e}");
+    }
+
+    #[test]
+    fn entropy_high_for_mixed() {
+        let e = compute_entropy("aB3$xY9!");
+        assert!(e >= 3.0, "entropy of 'aB3$xY9!' should be >= 3.0, got {e}");
+    }
+
+    #[test]
+    fn entropy_zero_for_empty() {
+        assert_eq!(compute_entropy(""), 0.0);
+    }
+
+    // ---------- precompute_features ----------
+
+    fn make_store(cells: Vec<(&str, &str)>) -> CellStore {
+        let raws: Vec<RawCell> = cells
+            .into_iter()
+            .enumerate()
+            .map(|(i, (v, f))| RawCell {
+                row: i as u32,
+                col: 0,
+                value: v.into(),
+                formula: f.into(),
+                comment: String::new(),
+                sheet_name: "Sheet1".into(),
+                is_merged_origin: false,
+            })
+            .collect();
+        let mut store = CellStore::from_raw(raws);
+        precompute_features(&mut store);
+        store
+    }
+
+    #[test]
+    fn precompute_password_header() {
+        let store = make_store(vec![("Password", "")]);
+        assert_ne!(store.feature_flags[0] & FLAG_IS_PASSWORD_HEADER, 0);
+    }
+
+    #[test]
+    fn precompute_short_no_entropy() {
+        let store = make_store(vec![("abc", "")]);
+        assert_eq!(store.entropy[0], 0.0);
+    }
+
+    #[test]
+    fn precompute_upper_only() {
+        let store = make_store(vec![("ABC", "")]);
+        assert_ne!(store.feature_flags[0] & FLAG_HAS_UPPER, 0);
+        assert_eq!(store.feature_flags[0] & FLAG_HAS_LOWER, 0);
+    }
+
+    #[test]
+    fn precompute_entropy_computed_when_eligible() {
+        // "Abc12345" has upper + lower + digit, len == 8 >= ENTROPY_MIN_LENGTH
+        let store = make_store(vec![("Abc12345", "")]);
+        let flags = store.feature_flags[0];
+        assert_ne!(flags & FLAG_HAS_UPPER, 0);
+        assert_ne!(flags & FLAG_HAS_LOWER, 0);
+        assert_ne!(flags & FLAG_HAS_DIGIT, 0);
+        assert!(store.entropy[0] > 0.0, "entropy should be computed");
+    }
+
+    #[test]
+    fn precompute_entropy_skipped_missing_lower() {
+        // "ABCD1234" has upper + digit but no lower → entropy not computed
+        let store = make_store(vec![("ABCD1234", "")]);
+        assert_eq!(store.entropy[0], 0.0);
+    }
+
+    #[test]
+    fn precompute_formula_flag() {
+        let store = make_store(vec![("result", "=SUM(A1)")]);
+        assert_ne!(store.feature_flags[0] & FLAG_HAS_FORMULA, 0);
+    }
+
+    #[test]
+    fn precompute_no_formula_flag_when_empty() {
+        let store = make_store(vec![("result", "")]);
+        assert_eq!(store.feature_flags[0] & FLAG_HAS_FORMULA, 0);
+    }
+
+    #[test]
+    fn precompute_normalized_value_stored() {
+        let store = make_store(vec![("Pass Word", "")]);
+        assert_eq!(store.normalized_values[0], "password");
+    }
+
+    #[test]
+    fn precompute_empty_value() {
+        let store = make_store(vec![("", "")]);
+        assert_ne!(store.feature_flags[0] & FLAG_IS_EMPTY, 0);
+        assert_eq!(store.entropy[0], 0.0);
+    }
+}
