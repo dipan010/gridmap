@@ -1,0 +1,14 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "gridmap"
+requires-python = ">=3.9"
+dynamic = ["version"]
+
+[tool.maturin]
+manifest-path = "crates/gridmap-py/Cargo.toml"
+python-source = "python"
+module-name = "gridmap._core"
+features = ["pyo3/extension-module"]

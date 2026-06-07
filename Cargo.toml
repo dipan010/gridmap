@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/gridmap-core", "crates/gridmap-py"]
+resolver = "2"
