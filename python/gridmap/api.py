@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from gridmap import _core
@@ -24,20 +24,14 @@ class Relationship:
         return f"Relationship({self.key}={self.value} ({self.confidence}))"
 
 
+@dataclass(frozen=True)
 class GridDoc:
     """Result of processing an xlsx file through the gridmap engine."""
 
-    def __init__(
-        self,
-        filepath: Path,
-        sheet_count: int,
-        cell_count: int,
-        rels: list[Relationship],
-    ) -> None:
-        self.filepath = filepath
-        self.sheet_count = sheet_count
-        self.cell_count = cell_count
-        self._relationships = rels
+    filepath: Path
+    sheet_count: int
+    cell_count: int
+    _relationships: list[Relationship] = field(repr=False)
 
     def relationships(self) -> list[Relationship]:
         """All inferred key-value relationships."""
@@ -92,5 +86,5 @@ def load(filepath: str | Path) -> GridDoc:
         filepath=filepath,
         sheet_count=sheet_count,
         cell_count=cell_count,
-        rels=rels,
+        _relationships=rels,
     )

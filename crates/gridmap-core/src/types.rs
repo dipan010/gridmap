@@ -1,8 +1,9 @@
 // ---------- Cell classification ----------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum CellType {
+    #[default]
     Empty = 0,
     Header = 1,
     Value = 2,
@@ -87,6 +88,11 @@ mod tests {
         assert_eq!(CellType::Header as u8, 1);
         assert_eq!(CellType::Value as u8, 2);
         assert_eq!(CellType::Section as u8, 3);
+    }
+
+    #[test]
+    fn cell_type_default_is_empty() {
+        assert_eq!(CellType::default(), CellType::Empty);
     }
 
     #[test]

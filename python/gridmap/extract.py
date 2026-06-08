@@ -119,12 +119,14 @@ def extract_workbook(filepath: str | Path) -> list[list[tuple]]:
     filepath = Path(filepath)
     wb = openpyxl.load_workbook(filepath, data_only=False)
 
-    sheets: list[list[tuple]] = []
-    for name in wb.sheetnames:
-        ws = wb[name]
-        sheet_state = ws.sheet_state
-        cells = extract_single_sheet(ws, name, sheet_state)
-        sheets.append(cells)
+    try:
+        sheets: list[list[tuple]] = []
+        for name in wb.sheetnames:
+            ws = wb[name]
+            sheet_state = ws.sheet_state
+            cells = extract_single_sheet(ws, name, sheet_state)
+            sheets.append(cells)
+    finally:
+        wb.close()
 
-    wb.close()
     return sheets

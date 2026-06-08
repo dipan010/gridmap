@@ -64,6 +64,12 @@ def test_load_accepts_string(credential_xlsx):
     assert isinstance(doc, GridDoc)
 
 
+def test_griddoc_is_frozen(credential_xlsx):
+    doc = load(credential_xlsx)
+    with pytest.raises(AttributeError):
+        doc.filepath = Path("/tmp/nope")
+
+
 def test_load_nonexistent_raises():
     with pytest.raises(FileNotFoundError):
         load("/tmp/does_not_exist_gridmap_test.xlsx")
