@@ -10,7 +10,7 @@ use crate::types::*;
 
 pub(crate) static INLINE_CREDENTIAL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(?:password|pwd|pass|passwd|passwort|contraseña|mot_de_passe|senha|пароль)[\s:=]+(.+)",
+        r"(?i)(?:password|pwd|pass|passwd|passwort|contraseña|motdepasse|senha|пароль|secret|pin)[\s:=]+(.+)",
     )
     .unwrap()
 });
@@ -20,7 +20,7 @@ pub(crate) static FORMULA_STRING_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 pub(crate) static FORMULA_KEYWORD_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(?:password|pwd|pass|passwd|secret|token|key)\s*$").unwrap()
+    Regex::new(r"(?i)(?:password|pwd|pass|passwd|passwort|contraseña|motdepasse|senha|пароль|secret|token|key|pin)[\s:=]*$").unwrap()
 });
 
 // ---------- Section-title special chars ----------
@@ -261,6 +261,14 @@ mod tests {
     }
 
     #[test]
+    fn inline_regex_secret_and_pin() {
+        assert!(INLINE_CREDENTIAL_REGEX.is_match("secret: api_key_123"));
+        assert!(INLINE_CREDENTIAL_REGEX.is_match("Secret=my_token"));
+        assert!(INLINE_CREDENTIAL_REGEX.is_match("pin: 8472"));
+        assert!(INLINE_CREDENTIAL_REGEX.is_match("PIN=9999"));
+    }
+
+    #[test]
     fn inline_regex_no_match() {
         assert!(!INLINE_CREDENTIAL_REGEX.is_match("Hello World"));
         assert!(!INLINE_CREDENTIAL_REGEX.is_match("12345"));
@@ -278,5 +286,22 @@ mod tests {
         assert!(FORMULA_KEYWORD_REGEX.is_match("database password"));
         assert!(FORMULA_KEYWORD_REGEX.is_match("API_KEY"));
         assert!(!FORMULA_KEYWORD_REGEX.is_match("hello world"));
+    }
+
+    #[test]
+    fn formula_keyword_regex_multilingual() {
+        assert!(FORMULA_KEYWORD_REGEX.is_match("admin passwort"));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("user contraseña"));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("motdepasse"));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("db senha"));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("пароль"));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("user pin"));
+    }
+
+    #[test]
+    fn formula_keyword_regex_colon_equals_terminator() {
+        assert!(FORMULA_KEYWORD_REGEX.is_match("password:"));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("secret="));
+        assert!(FORMULA_KEYWORD_REGEX.is_match("pin: "));
     }
 }

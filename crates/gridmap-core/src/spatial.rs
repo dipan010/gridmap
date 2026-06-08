@@ -41,10 +41,14 @@ impl DistanceTable {
             (-1, 0) => 70.0,
             // Diagonal adjacent
             (dr, dc) if dr.abs() == 1 && dc.abs() == 1 => 70.0,
-            // Two cells away
-            (dr, dc) if dr.abs() <= 2 && dc.abs() <= 2 => 40.0,
-            // Three cells away (edge of radius)
-            _ => 20.0,
+            // Same column, farther than adjacent: gradual decay
+            (dr, 0) => f32::max(0.0, 90.0 - (dr.abs() - 1) as f32 * 15.0),
+            // Same row, farther than adjacent: gradual decay
+            (0, dc) => f32::max(0.0, 90.0 - (dc.abs() - 1) as f32 * 15.0),
+            // General case: Euclidean decay
+            (dr, dc) => {
+                f32::max(0.0, 60.0 - ((dr * dr + dc * dc) as f32).sqrt() * 10.0)
+            }
         }
     }
 
@@ -138,6 +142,42 @@ mod tests {
         assert_eq!(dt.score(-1, -1), 70.0);
         assert_eq!(dt.score(1, -1), 70.0);
         assert_eq!(dt.score(-1, 1), 70.0);
+    }
+
+    #[test]
+    fn score_same_column_decay() {
+        let dt = DistanceTable::new();
+        // |dr|=2, dc=0 → max(0, 90 - (2-1)*15) = 75
+        assert_eq!(dt.score(2, 0), 75.0);
+        assert_eq!(dt.score(-2, 0), 75.0);
+        // |dr|=3, dc=0 → max(0, 90 - (3-1)*15) = 60
+        assert_eq!(dt.score(3, 0), 60.0);
+        assert_eq!(dt.score(-3, 0), 60.0);
+    }
+
+    #[test]
+    fn score_same_row_decay() {
+        let dt = DistanceTable::new();
+        // dr=0, |dc|=2 → max(0, 90 - (2-1)*15) = 75
+        assert_eq!(dt.score(0, 2), 75.0);
+        assert_eq!(dt.score(0, -2), 75.0);
+        // dr=0, |dc|=3 → max(0, 90 - (3-1)*15) = 60
+        assert_eq!(dt.score(0, 3), 60.0);
+        assert_eq!(dt.score(0, -3), 60.0);
+    }
+
+    #[test]
+    fn score_general_euclidean_decay() {
+        let dt = DistanceTable::new();
+        // (2,1) → max(0, 60 - sqrt(5)*10) ≈ 37.64
+        let s = dt.score(2, 1);
+        assert!((s - 37.64).abs() < 0.1, "expected ~37.64, got {s}");
+        // (2,2) → max(0, 60 - sqrt(8)*10) ≈ 31.72
+        let s = dt.score(2, 2);
+        assert!((s - 31.72).abs() < 0.1, "expected ~31.72, got {s}");
+        // (3,3) → max(0, 60 - sqrt(18)*10) ≈ 17.57
+        let s = dt.score(3, 3);
+        assert!((s - 17.57).abs() < 0.1, "expected ~17.57, got {s}");
     }
 
     #[test]

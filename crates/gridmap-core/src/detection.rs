@@ -280,17 +280,18 @@ mod tests {
 
     #[test]
     fn formula_split_strings_match() {
-        // Use a keyword that isn't in the inline regex so Strategy 1 doesn't fire
+        // Use a keyword that's in FORMULA_KEYWORD but NOT in INLINE_CREDENTIAL_REGEX
+        // so Strategy 1 doesn't fire and Strategy 2 catches it.
         let store = build_store(vec![raw(
             0,
             0,
             "result",
-            r#"=IF(A1,"secret","s3cr3t!val")"#,
+            r#"=IF(A1,"token","s3cr3t!val")"#,
             "",
         )]);
         let candidates = reduce_candidate_space(&store);
         let rels = analyze_formulas(&store, &candidates);
-        // "secret" is a FORMULA_KEYWORD but not in INLINE_CREDENTIAL_REGEX
+        // "token" is a FORMULA_KEYWORD but not in INLINE_CREDENTIAL_REGEX
         assert!(rels.iter().any(|r| r.confidence == 230.0
             && r.reason == "formula_split_strings"
             && r.value == "s3cr3t!val"));

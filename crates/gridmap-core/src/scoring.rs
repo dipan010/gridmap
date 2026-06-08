@@ -280,8 +280,12 @@ mod tests {
             raw(3, 3, "s3cr3t!!", "", ""),
         ]);
         let (score, reason) = score_candidate(&store, 0, 1, &DISTANCE_TABLE);
-        // (3,3) relative → 3-away diagonal → 20.0
-        assert!(reason.contains("distance=20"));
+        // (3,3) relative → Euclidean decay: max(0, 60 - sqrt(18)*10) ≈ 17.57
+        assert!(reason.contains("distance="));
+        // Extract the distance component and verify it's in the expected range
+        let dist_str = reason.split(';').next().unwrap();
+        let dist_val: f32 = dist_str.strip_prefix("distance=").unwrap().parse().unwrap();
+        assert!((dist_val - 17.57).abs() < 0.5, "expected ~17.57, got {dist_val}");
         assert!(score < 100.0, "far cell should have lower distance score");
     }
 }
