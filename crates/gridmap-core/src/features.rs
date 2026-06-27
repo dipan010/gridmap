@@ -88,11 +88,153 @@ fn ac_exact_match(ac: &AhoCorasick, text: &str) -> bool {
 
 /// Lowercase, strip, collapse [\s_\-:=]+ to nothing.
 pub fn normalize(value: &str) -> String {
-    value
-        .to_lowercase()
-        .chars()
-        .filter(|c| !matches!(c, ' ' | '\t' | '\n' | '\r' | '_' | '-' | ':' | '='))
-        .collect()
+    let mut buf = String::with_capacity(value.len());
+    normalize_into(value, &mut buf);
+    buf
+}
+
+/// Normalize into an existing buffer, avoiding allocation.
+#[inline]
+fn normalize_into(value: &str, buf: &mut String) {
+    buf.clear();
+    if value.is_ascii() {
+        // Fast path: all ASCII, skip char decoding
+        for &b in value.as_bytes() {
+            match b {
+                b' ' | b'\t' | b'\n' | b'\r' | b'_' | b'-' | b':' | b'=' => {}
+                b'A'..=b'Z' => buf.push((b + 32) as char),
+                _ => buf.push(b as char),
+            }
+        }
+    } else {
+        // Slow path: non-ASCII (multilingual headers)
+        for ch in value.chars() {
+            if matches!(ch, ' ' | '\t' | '\n' | '\r' | '_' | '-' | ':' | '=') {
+                continue;
+            }
+            for lc in ch.to_lowercase() {
+                buf.push(lc);
+            }
+        }
+    }
+}
+
+/// Fused normalize + character-class flag detection in a single pass.
+/// Writes the normalized value into `norm_buf` and returns the flags.
+#[inline]
+fn normalize_and_flags(value: &str, norm_buf: &mut String) -> u16 {
+    norm_buf.clear();
+
+    if value.is_empty() {
+        return FLAG_IS_EMPTY;
+    }
+
+    let bytes = value.as_bytes();
+    let mut flags: u16 = 0;
+    let mut has_upper = false;
+    let mut has_lower = false;
+    let mut has_digit = false;
+    let mut has_special = false;
+    let mut all_alpha = true;
+    let mut all_numeric = true;
+    let mut has_colon = false;
+
+    if value.is_ascii() {
+        // Fast path: single pass over ASCII bytes
+        norm_buf.reserve(bytes.len());
+        for &b in bytes {
+            match b {
+                b'A'..=b'Z' => {
+                    has_upper = true;
+                    norm_buf.push((b + 32) as char);
+                }
+                b'a'..=b'z' => {
+                    has_lower = true;
+                    norm_buf.push(b as char);
+                }
+                b'0'..=b'9' => {
+                    has_digit = true;
+                    all_alpha = false;
+                    norm_buf.push(b as char);
+                }
+                b' ' | b'\t' | b'\n' | b'\r' | b'_' | b'-' | b'=' => {
+                    // Strip from normalized output
+                    all_alpha = false;
+                    all_numeric = false;
+                }
+                b':' => {
+                    has_colon = true;
+                    // Strip from normalized output
+                    all_alpha = false;
+                    all_numeric = false;
+                }
+                _ => {
+                    // Non-alphanumeric, non-whitespace → special
+                    has_special = true;
+                    all_alpha = false;
+                    all_numeric = false;
+                    norm_buf.push(b as char);
+                }
+            }
+        }
+    } else {
+        // Slow path: non-ASCII values (multilingual)
+        for ch in value.chars() {
+            if ch.is_uppercase() {
+                has_upper = true;
+            } else if ch.is_lowercase() {
+                has_lower = true;
+            }
+            if ch.is_ascii_digit() {
+                has_digit = true;
+            } else {
+                all_numeric = false;
+            }
+            if !ch.is_alphanumeric() && !ch.is_whitespace() {
+                has_special = true;
+            }
+            if !ch.is_alphabetic() {
+                all_alpha = false;
+            }
+            if ch == ':' {
+                has_colon = true;
+            }
+            // Normalize: strip separators, lowercase
+            if matches!(ch, ' ' | '\t' | '\n' | '\r' | '_' | '-' | ':' | '=') {
+                continue;
+            }
+            for lc in ch.to_lowercase() {
+                norm_buf.push(lc);
+            }
+        }
+    }
+
+    if has_upper {
+        flags |= FLAG_HAS_UPPER;
+    }
+    if has_lower {
+        flags |= FLAG_HAS_LOWER;
+    }
+    if has_digit {
+        flags |= FLAG_HAS_DIGIT;
+    }
+    if has_special {
+        flags |= FLAG_HAS_SPECIAL;
+    }
+    if value.len() < MIN_CANDIDATE_LENGTH {
+        flags |= FLAG_IS_SHORT;
+    }
+    if all_numeric && has_digit {
+        flags |= FLAG_IS_NUMERIC;
+    }
+    if all_alpha && (has_upper || has_lower) {
+        flags |= FLAG_IS_ALPHA;
+    }
+    if has_colon {
+        flags |= FLAG_HAS_COLON;
+    }
+
+    flags
 }
 
 // ---------- Entropy ----------
@@ -124,76 +266,21 @@ pub fn compute_entropy(text: &str) -> f32 {
 // ---------- Feature precomputation ----------
 
 /// Single-pass feature computation over all cells in the store.
+///
+/// Uses `normalize_and_flags()` to fuse normalization and character-class
+/// detection into a single pass, avoiding the intermediate `to_lowercase()`
+/// allocation that the standalone `normalize()` produces.
 pub fn precompute_features(store: &mut CellStore) {
     let entropy_prefilter = FLAG_HAS_UPPER | FLAG_HAS_LOWER | FLAG_HAS_DIGIT;
+    let mut norm_buf = String::new();
 
     for i in 0..store.len() {
         let value = store.get_value(i);
         let formula = store.get_formula(i);
         let comment = store.get_comment(i);
 
-        // WIN 2: normalize once, store result
-        let norm = normalize(value);
-        let mut flags: u16 = 0;
-
-        // Character-class flags
-        if value.is_empty() {
-            flags |= FLAG_IS_EMPTY;
-        } else {
-            let mut has_upper = false;
-            let mut has_lower = false;
-            let mut has_digit = false;
-            let mut has_special = false;
-            let mut has_alpha = false;
-            let mut all_alpha = true;
-            let mut all_numeric = true;
-
-            for ch in value.chars() {
-                if ch.is_uppercase() {
-                    has_upper = true;
-                    has_alpha = true;
-                } else if ch.is_lowercase() {
-                    has_lower = true;
-                    has_alpha = true;
-                }
-                if ch.is_ascii_digit() {
-                    has_digit = true;
-                } else {
-                    all_numeric = false;
-                }
-                if !ch.is_alphanumeric() && !ch.is_whitespace() {
-                    has_special = true;
-                }
-                if !ch.is_alphabetic() {
-                    all_alpha = false;
-                }
-            }
-
-            if has_upper {
-                flags |= FLAG_HAS_UPPER;
-            }
-            if has_lower {
-                flags |= FLAG_HAS_LOWER;
-            }
-            if has_digit {
-                flags |= FLAG_HAS_DIGIT;
-            }
-            if has_special {
-                flags |= FLAG_HAS_SPECIAL;
-            }
-            if value.len() < MIN_CANDIDATE_LENGTH {
-                flags |= FLAG_IS_SHORT;
-            }
-            if all_numeric && has_digit {
-                flags |= FLAG_IS_NUMERIC;
-            }
-            if all_alpha && has_alpha {
-                flags |= FLAG_IS_ALPHA;
-            }
-            if value.contains(':') {
-                flags |= FLAG_HAS_COLON;
-            }
-        }
+        // Fused normalize + flag detection (single pass, buffer reuse)
+        let mut flags = normalize_and_flags(value, &mut norm_buf);
 
         // Formula flag
         if !formula.is_empty() {
@@ -206,13 +293,13 @@ pub fn precompute_features(store: &mut CellStore) {
         }
 
         // Header detection against normalized value (Aho-Corasick exact match)
-        if ac_exact_match(&PASSWORD_AC, &norm) {
+        if ac_exact_match(&PASSWORD_AC, &norm_buf) {
             flags |= FLAG_IS_PASSWORD_HEADER;
         }
-        if ac_exact_match(&USERNAME_AC, &norm) {
+        if ac_exact_match(&USERNAME_AC, &norm_buf) {
             flags |= FLAG_IS_USERNAME_HEADER;
         }
-        if ac_exact_match(&URL_AC, &norm) {
+        if ac_exact_match(&URL_AC, &norm_buf) {
             flags |= FLAG_IS_URL_HEADER;
         }
 
@@ -226,7 +313,9 @@ pub fn precompute_features(store: &mut CellStore) {
             0.0
         };
 
-        store.normalized_values[i] = norm;
+        // Clone from reusable buffer into the store slot
+        store.normalized_values[i].clear();
+        store.normalized_values[i].push_str(&norm_buf);
         store.feature_flags[i] = flags;
         store.entropy[i] = ent;
     }
