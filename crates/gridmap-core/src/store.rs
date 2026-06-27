@@ -1,4 +1,5 @@
 use ahash::AHashMap;
+use arrow2::array::{Array, BooleanArray, UInt32Array, Utf8Array};
 
 use crate::types::CellType;
 
@@ -15,50 +16,64 @@ pub struct RawCell {
     pub is_merged_origin: bool,
 }
 
-// ---------- SoA cell store ----------
+// ---------- Hybrid Arrow / Vec cell store ----------
 
+/// Columnar cell store with Arrow-backed immutable columns and Vec workspace
+/// for mutable pipeline data.
+///
+/// Immutable columns (set once in `from_raw`, never mutated):
+///   rows, cols, values, formulas, comments, sheet_names, merged_flags
+///
+/// Mutable workspace (written by pipeline phases):
+///   normalized_values, feature_flags, entropy, cell_types, region_ids
 #[derive(Debug, Clone)]
 pub struct CellStore {
-    pub rows: Vec<u32>,
-    pub cols: Vec<u32>,
-    pub values: Vec<String>,
-    pub formulas: Vec<String>,
-    pub comments: Vec<String>,
-    pub sheet_names: Vec<String>,
-    pub is_merged_origin: Vec<bool>,
-    pub cell_types: Vec<CellType>,
+    // -- Arrow-backed immutable columns --
+    pub(crate) rows: UInt32Array,
+    pub(crate) cols: UInt32Array,
+    pub(crate) values: Utf8Array<i32>,
+    pub(crate) formulas: Utf8Array<i32>,
+    pub(crate) comments: Utf8Array<i32>,
+    pub(crate) sheet_names: Utf8Array<i32>,
+    pub(crate) merged_flags: BooleanArray,
+
+    // -- Mutable workspace (Vec-backed) --
+    pub cell_types: Vec<u8>,
     pub normalized_values: Vec<String>,
     pub feature_flags: Vec<u16>,
     pub entropy: Vec<f32>,
     pub region_ids: Vec<i32>,
+
+    // -- Lookup index --
     pub coord_to_id: AHashMap<(u32, u32), u32>,
 }
 
 impl CellStore {
+    /// Build a `CellStore` from raw cell input.
+    ///
+    /// Collects into temporary `Vec`s first (needed for FIX 3 comment
+    /// merge dedup), then converts immutable columns to Arrow arrays.
     pub fn from_raw(cells: Vec<RawCell>) -> Self {
-        let mut store = CellStore {
-            rows: Vec::with_capacity(cells.len()),
-            cols: Vec::with_capacity(cells.len()),
-            values: Vec::with_capacity(cells.len()),
-            formulas: Vec::with_capacity(cells.len()),
-            comments: Vec::with_capacity(cells.len()),
-            sheet_names: Vec::with_capacity(cells.len()),
-            is_merged_origin: Vec::with_capacity(cells.len()),
-            cell_types: Vec::with_capacity(cells.len()),
-            normalized_values: Vec::with_capacity(cells.len()),
-            feature_flags: Vec::with_capacity(cells.len()),
-            entropy: Vec::with_capacity(cells.len()),
-            region_ids: Vec::with_capacity(cells.len()),
-            coord_to_id: AHashMap::with_capacity(cells.len()),
-        };
+        let cap = cells.len();
+
+        // Temporary Vec collectors for immutable data
+        let mut t_rows: Vec<u32> = Vec::with_capacity(cap);
+        let mut t_cols: Vec<u32> = Vec::with_capacity(cap);
+        let mut t_values: Vec<String> = Vec::with_capacity(cap);
+        let mut t_formulas: Vec<String> = Vec::with_capacity(cap);
+        let mut t_comments: Vec<String> = Vec::with_capacity(cap);
+        let mut t_sheet_names: Vec<String> = Vec::with_capacity(cap);
+        let mut t_merged: Vec<bool> = Vec::with_capacity(cap);
+
+        let mut coord_to_id: AHashMap<(u32, u32), u32> = AHashMap::with_capacity(cap);
 
         for cell in cells {
             let key = (cell.row, cell.col);
-            if let Some(&existing_id) = store.coord_to_id.get(&key) {
+            if let Some(&existing_id) = coord_to_id.get(&key) {
                 // FIX 3: merge comment into existing slot
                 let id = existing_id as usize;
                 if !cell.comment.is_empty() {
-                    let existing = &mut store.comments[id];
+                    let existing = &mut t_comments[id];
                     if existing.is_empty() {
                         *existing = cell.comment;
                     } else {
@@ -69,32 +84,114 @@ impl CellStore {
                 continue;
             }
 
-            let id = store.rows.len() as u32;
-            store.coord_to_id.insert(key, id);
+            let id = t_rows.len() as u32;
+            coord_to_id.insert(key, id);
 
-            store.rows.push(cell.row);
-            store.cols.push(cell.col);
-            store.values.push(cell.value);
-            store.formulas.push(cell.formula);
-            store.comments.push(cell.comment);
-            store.sheet_names.push(cell.sheet_name);
-            store.is_merged_origin.push(cell.is_merged_origin);
-            store.cell_types.push(CellType::Value);
-            store.normalized_values.push(String::new());
-            store.feature_flags.push(0);
-            store.entropy.push(0.0);
-            store.region_ids.push(-1);
+            t_rows.push(cell.row);
+            t_cols.push(cell.col);
+            t_values.push(cell.value);
+            t_formulas.push(cell.formula);
+            t_comments.push(cell.comment);
+            t_sheet_names.push(cell.sheet_name);
+            t_merged.push(cell.is_merged_origin);
         }
 
-        store
+        let n = t_rows.len();
+
+        // Convert immutable data to Arrow arrays
+        let rows = UInt32Array::from_vec(t_rows);
+        let cols = UInt32Array::from_vec(t_cols);
+        let values = Utf8Array::<i32>::from_iter_values(t_values.iter().map(|s| s.as_str()));
+        let formulas = Utf8Array::<i32>::from_iter_values(t_formulas.iter().map(|s| s.as_str()));
+        let comments = Utf8Array::<i32>::from_iter_values(t_comments.iter().map(|s| s.as_str()));
+        let sheet_names =
+            Utf8Array::<i32>::from_iter_values(t_sheet_names.iter().map(|s| s.as_str()));
+        let merged_flags = BooleanArray::from_slice(t_merged);
+
+        // Initialize mutable workspace
+        let cell_types = vec![CellType::Value as u8; n];
+        let normalized_values = vec![String::new(); n];
+        let feature_flags = vec![0u16; n];
+        let entropy = vec![0.0f32; n];
+        let region_ids = vec![-1i32; n];
+
+        CellStore {
+            rows,
+            cols,
+            values,
+            formulas,
+            comments,
+            sheet_names,
+            merged_flags,
+            cell_types,
+            normalized_values,
+            feature_flags,
+            entropy,
+            region_ids,
+            coord_to_id,
+        }
     }
 
+    /// Number of cells in the store.
+    #[inline]
     pub fn len(&self) -> usize {
         self.rows.len()
     }
 
+    /// Whether the store is empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
+    }
+
+    // -- Accessors for Arrow-backed immutable columns --
+
+    /// Row coordinate for cell `i`.
+    #[inline]
+    pub fn get_row(&self, i: usize) -> u32 {
+        self.rows.value(i)
+    }
+
+    /// Column coordinate for cell `i`.
+    #[inline]
+    pub fn get_col(&self, i: usize) -> u32 {
+        self.cols.value(i)
+    }
+
+    /// Cell value string for cell `i`.
+    #[inline]
+    pub fn get_value(&self, i: usize) -> &str {
+        self.values.value(i)
+    }
+
+    /// Formula string for cell `i`.
+    #[inline]
+    pub fn get_formula(&self, i: usize) -> &str {
+        self.formulas.value(i)
+    }
+
+    /// Comment string for cell `i`.
+    #[inline]
+    pub fn get_comment(&self, i: usize) -> &str {
+        self.comments.value(i)
+    }
+
+    /// Sheet name for cell `i`.
+    #[inline]
+    pub fn get_sheet_name(&self, i: usize) -> &str {
+        self.sheet_names.value(i)
+    }
+
+    /// Merged-origin flag for cell `i`.
+    #[inline]
+    pub fn get_merged_flag(&self, i: usize) -> bool {
+        self.merged_flags.value(i)
+    }
+
+    /// Cell type for cell `i` (converted from u8 storage).
+    #[inline]
+    pub fn get_cell_type(&self, i: usize) -> CellType {
+        CellType::from_u8(self.cell_types[i])
     }
 }
 
@@ -134,7 +231,7 @@ mod tests {
         let store = CellStore::from_raw(cells);
         assert_eq!(store.len(), 2);
         // First occurrence wins for the value
-        assert_eq!(store.values[0], "first");
+        assert_eq!(store.get_value(0), "first");
     }
 
     #[test]
@@ -145,7 +242,7 @@ mod tests {
         ];
         let store = CellStore::from_raw(cells);
         assert_eq!(store.len(), 1);
-        assert_eq!(store.comments[0], "note1\nnote2");
+        assert_eq!(store.get_comment(0), "note1\nnote2");
     }
 
     #[test]
@@ -155,7 +252,7 @@ mod tests {
             make_raw(0, 0, "val", ""),
         ];
         let store = CellStore::from_raw(cells);
-        assert_eq!(store.comments[0], "original");
+        assert_eq!(store.get_comment(0), "original");
     }
 
     #[test]
@@ -167,7 +264,7 @@ mod tests {
         let store = CellStore::from_raw(cells);
         let id = store.coord_to_id[&(3, 7)];
         assert_eq!(id, 0);
-        assert_eq!(store.values[id as usize], "target");
+        assert_eq!(store.get_value(id as usize), "target");
     }
 
     #[test]
@@ -175,5 +272,35 @@ mod tests {
         let store = CellStore::from_raw(vec![]);
         assert_eq!(store.len(), 0);
         assert!(store.is_empty());
+    }
+
+    #[test]
+    fn accessor_row_col() {
+        let store = CellStore::from_raw(vec![make_raw(5, 7, "test", "")]);
+        assert_eq!(store.get_row(0), 5);
+        assert_eq!(store.get_col(0), 7);
+    }
+
+    #[test]
+    fn accessor_formula_sheet_merged() {
+        let cell = RawCell {
+            row: 0,
+            col: 0,
+            value: "v".into(),
+            formula: "=SUM(A1)".into(),
+            comment: String::new(),
+            sheet_name: "Data".into(),
+            is_merged_origin: true,
+        };
+        let store = CellStore::from_raw(vec![cell]);
+        assert_eq!(store.get_formula(0), "=SUM(A1)");
+        assert_eq!(store.get_sheet_name(0), "Data");
+        assert!(store.get_merged_flag(0));
+    }
+
+    #[test]
+    fn cell_type_default_is_value() {
+        let store = CellStore::from_raw(vec![make_raw(0, 0, "test", "")]);
+        assert_eq!(store.get_cell_type(0), CellType::Value);
     }
 }
