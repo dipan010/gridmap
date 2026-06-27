@@ -272,6 +272,10 @@ pub fn compute_entropy(text: &str) -> f32 {
 /// allocation that the standalone `normalize()` produces.
 pub fn precompute_features(store: &mut CellStore) {
     let entropy_prefilter = FLAG_HAS_UPPER | FLAG_HAS_LOWER | FLAG_HAS_DIGIT;
+
+    // Swap pattern: take the slot out, use it as the normalize buffer,
+    // then put it back. Avoids per-cell allocation since the buffer
+    // capacity grows once and is reused across cells.
     let mut norm_buf = String::new();
 
     for i in 0..store.len() {
@@ -313,11 +317,13 @@ pub fn precompute_features(store: &mut CellStore) {
             0.0
         };
 
-        // Clone from reusable buffer into the store slot
-        store.normalized_values[i].clear();
-        store.normalized_values[i].push_str(&norm_buf);
         store.feature_flags[i] = flags;
         store.entropy[i] = ent;
+
+        // Swap the reusable buffer into the store slot, take the old
+        // (empty) slot as the new buffer. This avoids allocation since
+        // the buffer retains its capacity across iterations.
+        std::mem::swap(&mut store.normalized_values[i], &mut norm_buf);
     }
 }
 
