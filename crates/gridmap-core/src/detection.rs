@@ -34,7 +34,7 @@ pub fn detect_inline_credentials(
         .iter()
         .filter_map(|&cell_id| {
             let id = cell_id as usize;
-            let value = &store.values[id];
+            let value = store.get_value(id);
 
             let caps = INLINE_CREDENTIAL_REGEX.captures(value)?;
             let captured = caps.get(1)?;
@@ -80,7 +80,7 @@ pub fn analyze_formulas(
             continue;
         }
 
-        let formula = &store.formulas[id];
+        let formula = store.get_formula(id);
         let strings: Vec<String> = FORMULA_STRING_REGEX
             .captures_iter(formula)
             .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
@@ -153,7 +153,7 @@ pub fn analyze_comments(
             continue;
         }
 
-        let comment = &store.comments[id];
+        let comment = store.get_comment(id);
 
         // Mode 1: cell is a password header → comment is the credential value
         if flags & FLAG_IS_PASSWORD_HEADER != 0 {
@@ -162,7 +162,7 @@ pub fn analyze_comments(
                 results.push(Relationship {
                     header_cell_id: id,
                     value_cell_id: id,
-                    key: store.values[id].clone(),
+                    key: store.get_value(id).to_string(),
                     value: raw_value,
                     confidence: 230.0,
                     reason: "comment_on_header_cell".into(),

@@ -61,7 +61,7 @@ pub fn reduce_candidate_space(store: &CellStore) -> Vec<u32> {
         }
 
         // Inline credential regex match
-        if INLINE_CREDENTIAL_REGEX.is_match(&store.values[i]) {
+        if INLINE_CREDENTIAL_REGEX.is_match(store.get_value(i)) {
             candidates.push(i as u32);
             continue;
         }
@@ -74,10 +74,10 @@ pub fn reduce_candidate_space(store: &CellStore) -> Vec<u32> {
 
 fn is_section_title(store: &CellStore, cell_id: u32, row_pop: &AHashMap<u32, u32>) -> bool {
     let id = cell_id as usize;
-    let value = &store.values[id];
+    let value = store.get_value(id);
 
     // Row population <= 2
-    let row = store.rows[id];
+    let row = store.get_row(id);
     let pop = row_pop.get(&row).copied().unwrap_or(0);
     if pop > 2 {
         return false;
@@ -108,8 +108,8 @@ fn is_section_title(store: &CellStore, cell_id: u32, row_pop: &AHashMap<u32, u32
 pub fn classify_cells(store: &mut CellStore, candidate_ids: &[u32]) {
     // Build row population from ALL cells
     let mut row_pop: AHashMap<u32, u32> = AHashMap::new();
-    for &row in &store.rows {
-        *row_pop.entry(row).or_insert(0) += 1;
+    for i in 0..store.len() {
+        *row_pop.entry(store.get_row(i)).or_insert(0) += 1;
     }
 
     for &cell_id in candidate_ids {
@@ -117,11 +117,11 @@ pub fn classify_cells(store: &mut CellStore, candidate_ids: &[u32]) {
         let flags = store.feature_flags[id];
 
         if flags & (FLAG_IS_PASSWORD_HEADER | FLAG_IS_USERNAME_HEADER | FLAG_IS_URL_HEADER) != 0 {
-            store.cell_types[id] = CellType::Header;
+            store.cell_types[id] = CellType::Header as u8;
         } else if is_section_title(store, cell_id, &row_pop) {
-            store.cell_types[id] = CellType::Section;
+            store.cell_types[id] = CellType::Section as u8;
         } else {
-            store.cell_types[id] = CellType::Value;
+            store.cell_types[id] = CellType::Value as u8;
         }
     }
 }
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn candidate_high_entropy() {
-        // "xK9$mQ2!wP4&" has high entropy and mixed chars
+        // "xK9$mQ2!wP4z" has high entropy and mixed chars
         let store = build_store(vec![raw(0, 0, "xK9$mQ2!wP4z", "", "")]);
         // Verify entropy was computed and is above threshold
         assert!(store.entropy[0] >= ENTROPY_THRESHOLD);
@@ -204,7 +204,7 @@ mod tests {
         let mut store = build_store(vec![raw(0, 0, "Password", "", "")]);
         let candidates = reduce_candidate_space(&store);
         classify_cells(&mut store, &candidates);
-        assert_eq!(store.cell_types[0], CellType::Header);
+        assert_eq!(store.get_cell_type(0), CellType::Header);
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod tests {
         // Not a header keyword, but alone in row with alpha text
         let candidates = vec![0u32];
         classify_cells(&mut store, &candidates);
-        assert_eq!(store.cell_types[0], CellType::Section);
+        assert_eq!(store.get_cell_type(0), CellType::Section);
     }
 
     #[test]
@@ -229,7 +229,7 @@ mod tests {
         classify_cells(&mut store, &candidates);
         // Cell 0 was a candidate (has comment) but row has 3 cells → not section
         // No header flag → Value
-        assert_eq!(store.cell_types[0], CellType::Value);
+        assert_eq!(store.get_cell_type(0), CellType::Value);
     }
 
     #[test]
@@ -238,7 +238,7 @@ mod tests {
         let candidates = vec![0u32];
         classify_cells(&mut store, &candidates);
         // Has special chars → not a section title → Value
-        assert_eq!(store.cell_types[0], CellType::Value);
+        assert_eq!(store.get_cell_type(0), CellType::Value);
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod tests {
         let mut store = build_store(vec![raw(0, 0, &long, "", "")]);
         let candidates = vec![0u32];
         classify_cells(&mut store, &candidates);
-        assert_eq!(store.cell_types[0], CellType::Value);
+        assert_eq!(store.get_cell_type(0), CellType::Value);
     }
 
     // ---------- regex patterns ----------

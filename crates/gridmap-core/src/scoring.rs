@@ -16,14 +16,14 @@ pub fn score_candidate(
     let h = header_id as usize;
     let c = candidate_id as usize;
     let flags = store.feature_flags[c];
-    let value = &store.values[c];
+    let value = store.get_value(c);
 
     let mut score = 0.0_f32;
     let mut parts: Vec<String> = Vec::new();
 
     // DISTANCE: from precomputed table
-    let dr = store.rows[c] as i32 - store.rows[h] as i32;
-    let dc = store.cols[c] as i32 - store.cols[h] as i32;
+    let dr = store.get_row(c) as i32 - store.get_row(h) as i32;
+    let dc = store.get_col(c) as i32 - store.get_col(h) as i32;
     let dist_score = dist_table.score(dr, dc);
     score += dist_score;
     parts.push(format!("distance={dist_score}"));
@@ -67,7 +67,7 @@ pub fn score_candidate(
     }
 
     // USERNAME NEARBY: +30 if any neighbor of candidate has username header flag
-    let neighbors = query_radius(store, store.rows[c], store.cols[c], NEIGHBOR_RADIUS);
+    let neighbors = query_radius(store, store.get_row(c), store.get_col(c), NEIGHBOR_RADIUS);
     let username_nearby = neighbors
         .iter()
         .any(|&nid| store.feature_flags[nid as usize] & FLAG_IS_USERNAME_HEADER != 0);

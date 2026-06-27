@@ -37,14 +37,14 @@ pub fn detect_regions(store: &mut CellStore, candidate_ids: &[u32]) -> Vec<Regio
             cell_ids.push(id);
             store.region_ids[id] = region_id as i32;
 
-            match store.cell_types[id] {
+            match store.get_cell_type(id) {
                 CellType::Header => header_ids.push(id),
                 CellType::Value => value_ids.push(id),
                 _ => {}
             }
 
-            let row = store.rows[id];
-            let col = store.cols[id];
+            let row = store.get_row(id);
+            let col = store.get_col(id);
             let neighbors = query_radius(store, row, col, NEIGHBOR_RADIUS);
 
             for neighbor_id in neighbors {

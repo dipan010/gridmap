@@ -11,8 +11,8 @@ use crate::types::*;
 /// combined string >= 6 chars, returns `(combined_value, first_below_cell_id)`.
 fn detect_split_password(store: &CellStore, header_id: u32) -> Option<(String, u32)> {
     let h = header_id as usize;
-    let header_row = store.rows[h];
-    let header_col = store.cols[h];
+    let header_row = store.get_row(h);
+    let header_col = store.get_col(h);
 
     let mut parts: Vec<&str> = Vec::new();
     let mut first_id: Option<u32> = None;
@@ -23,20 +23,21 @@ fn detect_split_password(store: &CellStore, header_id: u32) -> Option<(String, u
             let id = cell_id as usize;
 
             // Must be Value type, non-empty, not a password header
-            if store.cell_types[id] != CellType::Value {
+            if store.get_cell_type(id) != CellType::Value {
                 break;
             }
-            if store.values[id].is_empty() {
+            let value = store.get_value(id);
+            if value.is_empty() {
                 break;
             }
             if store.feature_flags[id] & FLAG_IS_PASSWORD_HEADER != 0 {
                 break;
             }
-            if store.values[id].len() >= 30 {
+            if value.len() >= 30 {
                 break;
             }
 
-            parts.push(&store.values[id]);
+            parts.push(value);
             if first_id.is_none() {
                 first_id = Some(cell_id);
             }
@@ -87,7 +88,7 @@ pub fn infer_relationships(
             results.push(Relationship {
                 header_cell_id: h,
                 value_cell_id: first_cell_id as usize,
-                key: store.values[h].clone(),
+                key: store.get_value(h).to_string(),
                 value: combined,
                 confidence: 200.0,
                 reason: "split_password".into(),
@@ -96,7 +97,7 @@ pub fn infer_relationships(
         }
 
         // 2. Query neighbors within radius
-        let neighbors = query_radius(store, store.rows[h], store.cols[h], NEIGHBOR_RADIUS);
+        let neighbors = query_radius(store, store.get_row(h), store.get_col(h), NEIGHBOR_RADIUS);
 
         // 3. Filter to Value type, not already used
         let mut best_score = f32::NEG_INFINITY;
@@ -105,7 +106,7 @@ pub fn infer_relationships(
 
         for &nid in &neighbors {
             let n = nid as usize;
-            if store.cell_types[n] != CellType::Value {
+            if store.get_cell_type(n) != CellType::Value {
                 continue;
             }
             if used_value_ids.contains(&nid) {
@@ -128,8 +129,8 @@ pub fn infer_relationships(
                 results.push(Relationship {
                     header_cell_id: h,
                     value_cell_id: value_id as usize,
-                    key: store.values[h].clone(),
-                    value: store.values[value_id as usize].clone(),
+                    key: store.get_value(h).to_string(),
+                    value: store.get_value(value_id as usize).to_string(),
                     confidence: best_score,
                     reason: best_reason,
                 });

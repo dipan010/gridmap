@@ -1,69 +1,88 @@
-use std::collections::HashSet;
 use std::sync::LazyLock;
+
+use aho_corasick::{AhoCorasick, MatchKind};
 
 use crate::store::CellStore;
 use crate::types::*;
 
-// ---------- Header keyword sets ----------
+// ---------- Aho-Corasick header automatons ----------
 
-static PASSWORD_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    HashSet::from([
-        "password",
-        "pwd",
-        "pass",
-        "passwd",
-        "passphrase",
-        "passcode",
-        "passwort",
-        "contraseña",
-        "motdepasse",
-        "senha",
-        "пароль",
-        "パスワード",
-        "密码",
-        "비밀번호",
-        "wachtwoord",
-        "hasło",
-        "lösenord",
-        "secretkey",
-        "secret",
-        "apikey",
-        "apikeypassword",
-        "token",
-        "accesstoken",
-        "authtoken",
-    ])
-});
+static PASSWORD_PATTERNS: &[&str] = &[
+    "password",
+    "pwd",
+    "pass",
+    "passwd",
+    "passphrase",
+    "passcode",
+    "passwort",
+    "contraseña",
+    "motdepasse",
+    "senha",
+    "пароль",
+    "パスワード",
+    "密码",
+    "비밀번호",
+    "wachtwoord",
+    "hasło",
+    "lösenord",
+    "secretkey",
+    "secret",
+    "apikey",
+    "apikeypassword",
+    "token",
+    "accesstoken",
+    "authtoken",
+];
 
-static USERNAME_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    HashSet::from([
-        "username",
-        "user",
-        "login",
-        "email",
-        "emailaddress",
-        "email",
-        "account",
-        "accountname",
-        "userid",
-        "userid",
-        "username",
-        "usuario",
-        "benutzername",
-        "utilisateur",
-        "utente",
-        "gebruiker",
-        "użytkownik",
-        "användare",
-    ])
-});
+static USERNAME_PATTERNS: &[&str] = &[
+    "username",
+    "user",
+    "login",
+    "email",
+    "emailaddress",
+    "account",
+    "accountname",
+    "userid",
+    "usuario",
+    "benutzername",
+    "utilisateur",
+    "utente",
+    "gebruiker",
+    "użytkownik",
+    "användare",
+];
 
-static URL_HEADERS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    HashSet::from([
-        "url", "uri", "link", "website", "endpoint", "server", "host", "site", "homepage",
-        "webpage", "href", "baseurl",
-    ])
-});
+static URL_PATTERNS: &[&str] = &[
+    "url", "uri", "link", "website", "endpoint", "server", "host", "site", "homepage",
+    "webpage", "href", "baseurl",
+];
+
+fn build_ac(patterns: &[&str]) -> AhoCorasick {
+    AhoCorasick::builder()
+        .match_kind(MatchKind::LeftmostLongest)
+        .build(patterns)
+        .expect("valid patterns")
+}
+
+static PASSWORD_AC: LazyLock<AhoCorasick> =
+    LazyLock::new(|| build_ac(PASSWORD_PATTERNS));
+
+static USERNAME_AC: LazyLock<AhoCorasick> =
+    LazyLock::new(|| build_ac(USERNAME_PATTERNS));
+
+static URL_AC: LazyLock<AhoCorasick> =
+    LazyLock::new(|| build_ac(URL_PATTERNS));
+
+/// Check if `text` exactly matches any pattern in the automaton.
+/// Aho-Corasick finds substrings; we need full-string match.
+fn ac_exact_match(ac: &AhoCorasick, text: &str) -> bool {
+    for mat in ac.find_iter(text) {
+        if mat.start() == 0 && mat.end() == text.len() {
+            return true;
+        }
+    }
+    false
+}
 
 // ---------- Normalize ----------
 
@@ -109,8 +128,9 @@ pub fn precompute_features(store: &mut CellStore) {
     let entropy_prefilter = FLAG_HAS_UPPER | FLAG_HAS_LOWER | FLAG_HAS_DIGIT;
 
     for i in 0..store.len() {
-        let value = &store.values[i];
-        let formula = &store.formulas[i];
+        let value = store.get_value(i);
+        let formula = store.get_formula(i);
+        let comment = store.get_comment(i);
 
         // WIN 2: normalize once, store result
         let norm = normalize(value);
@@ -181,18 +201,18 @@ pub fn precompute_features(store: &mut CellStore) {
         }
 
         // Comment flag
-        if !store.comments[i].is_empty() {
+        if !comment.is_empty() {
             flags |= FLAG_HAS_COMMENT;
         }
 
-        // Header detection against normalized value
-        if PASSWORD_HEADERS.contains(norm.as_str()) {
+        // Header detection against normalized value (Aho-Corasick exact match)
+        if ac_exact_match(&PASSWORD_AC, &norm) {
             flags |= FLAG_IS_PASSWORD_HEADER;
         }
-        if USERNAME_HEADERS.contains(norm.as_str()) {
+        if ac_exact_match(&USERNAME_AC, &norm) {
             flags |= FLAG_IS_USERNAME_HEADER;
         }
-        if URL_HEADERS.contains(norm.as_str()) {
+        if ac_exact_match(&URL_AC, &norm) {
             flags |= FLAG_IS_URL_HEADER;
         }
 
@@ -243,42 +263,42 @@ mod tests {
 
     #[test]
     fn password_headers_contains_password() {
-        assert!(PASSWORD_HEADERS.contains("password"));
+        assert!(ac_exact_match(&PASSWORD_AC, "password"));
     }
 
     #[test]
     fn password_headers_contains_multilingual() {
-        assert!(PASSWORD_HEADERS.contains("contraseña"));
-        assert!(PASSWORD_HEADERS.contains("passwort"));
-        assert!(PASSWORD_HEADERS.contains("пароль"));
-        assert!(PASSWORD_HEADERS.contains("パスワード"));
-        assert!(PASSWORD_HEADERS.contains("密码"));
-        assert!(PASSWORD_HEADERS.contains("비밀번호"));
-        assert!(PASSWORD_HEADERS.contains("wachtwoord"));
-        assert!(PASSWORD_HEADERS.contains("hasło"));
-        assert!(PASSWORD_HEADERS.contains("lösenord"));
-        assert!(PASSWORD_HEADERS.contains("senha"));
+        assert!(ac_exact_match(&PASSWORD_AC, "contraseña"));
+        assert!(ac_exact_match(&PASSWORD_AC, "passwort"));
+        assert!(ac_exact_match(&PASSWORD_AC, "пароль"));
+        assert!(ac_exact_match(&PASSWORD_AC, "パスワード"));
+        assert!(ac_exact_match(&PASSWORD_AC, "密码"));
+        assert!(ac_exact_match(&PASSWORD_AC, "비밀번호"));
+        assert!(ac_exact_match(&PASSWORD_AC, "wachtwoord"));
+        assert!(ac_exact_match(&PASSWORD_AC, "hasło"));
+        assert!(ac_exact_match(&PASSWORD_AC, "lösenord"));
+        assert!(ac_exact_match(&PASSWORD_AC, "senha"));
     }
 
     #[test]
     fn password_headers_contains_motdepasse() {
         // "mot de passe" normalizes to "motdepasse"
-        assert!(PASSWORD_HEADERS.contains("motdepasse"));
+        assert!(ac_exact_match(&PASSWORD_AC, "motdepasse"));
     }
 
     #[test]
     fn username_headers_basic() {
-        assert!(USERNAME_HEADERS.contains("username"));
-        assert!(USERNAME_HEADERS.contains("email"));
-        assert!(USERNAME_HEADERS.contains("usuario"));
-        assert!(USERNAME_HEADERS.contains("benutzername"));
+        assert!(ac_exact_match(&USERNAME_AC, "username"));
+        assert!(ac_exact_match(&USERNAME_AC, "email"));
+        assert!(ac_exact_match(&USERNAME_AC, "usuario"));
+        assert!(ac_exact_match(&USERNAME_AC, "benutzername"));
     }
 
     #[test]
     fn url_headers_basic() {
-        assert!(URL_HEADERS.contains("url"));
-        assert!(URL_HEADERS.contains("endpoint"));
-        assert!(URL_HEADERS.contains("host"));
+        assert!(ac_exact_match(&URL_AC, "url"));
+        assert!(ac_exact_match(&URL_AC, "endpoint"));
+        assert!(ac_exact_match(&URL_AC, "host"));
     }
 
     // ---------- entropy ----------
