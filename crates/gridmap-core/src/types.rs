@@ -10,6 +10,20 @@ pub enum CellType {
     Section = 3,
 }
 
+impl CellType {
+    /// Convert a `u8` back to `CellType`. Returns `CellType::Empty` for unknown values.
+    #[inline]
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            0 => CellType::Empty,
+            1 => CellType::Header,
+            2 => CellType::Value,
+            3 => CellType::Section,
+            _ => CellType::Empty,
+        }
+    }
+}
+
 // ---------- Relationship ----------
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +107,15 @@ mod tests {
     #[test]
     fn cell_type_default_is_empty() {
         assert_eq!(CellType::default(), CellType::Empty);
+    }
+
+    #[test]
+    fn cell_type_from_u8_roundtrip() {
+        assert_eq!(CellType::from_u8(0), CellType::Empty);
+        assert_eq!(CellType::from_u8(1), CellType::Header);
+        assert_eq!(CellType::from_u8(2), CellType::Value);
+        assert_eq!(CellType::from_u8(3), CellType::Section);
+        assert_eq!(CellType::from_u8(255), CellType::Empty);
     }
 
     #[test]
