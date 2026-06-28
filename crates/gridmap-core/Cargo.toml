@@ -21,3 +21,7 @@ harness = false
 [[bench]]
 name = "phases"
 harness = false
+
+[[bench]]
+name = "subphases"
+harness = false
