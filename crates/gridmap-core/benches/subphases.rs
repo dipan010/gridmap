@@ -10,7 +10,6 @@ use arrow2::array::{BooleanArray, UInt32Array, Utf8Array};
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 
 use gridmap_core::candidates::{classify_cells, reduce_candidate_space};
-use gridmap_core::features::precompute_features;
 use gridmap_core::regions::detect_regions;
 use gridmap_core::spatial::query_radius;
 use gridmap_core::store::{CellStore, RawCell};
