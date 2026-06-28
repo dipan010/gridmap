@@ -12,7 +12,14 @@ import openpyxl
 
 
 def clean_comment(raw_text: str) -> str:
-    """Strip whitespace and remove the 'Comment:\\n' prefix openpyxl adds."""
+    """Strip whitespace and remove the 'Comment:\\n' prefix openpyxl adds.
+
+    Args:
+        raw_text: Raw comment text from openpyxl.
+
+    Returns:
+        Cleaned comment string with prefix and surrounding whitespace removed.
+    """
     text = raw_text.strip()
     if text.startswith("Comment:\n"):
         text = text[len("Comment:\n"):]
@@ -20,7 +27,15 @@ def clean_comment(raw_text: str) -> str:
 
 
 def collect_merge_origins(worksheet: openpyxl.worksheet.worksheet.Worksheet) -> set[tuple[int, int]]:
-    """Return the set of (min_row, min_col) for every merged cell range."""
+    """Return the set of (min_row, min_col) for every merged cell range.
+
+    Args:
+        worksheet: An openpyxl Worksheet object.
+
+    Returns:
+        A set of (row, col) tuples identifying the origin cell of each
+        merged range in the worksheet.
+    """
     origins: set[tuple[int, int]] = set()
     for merge_range in worksheet.merged_cells.ranges:
         origins.add((merge_range.min_row, merge_range.min_col))
@@ -34,11 +49,20 @@ def extract_single_sheet(
 ) -> list[tuple]:
     """Extract one worksheet into a list of raw cell tuples.
 
-    Each tuple: (row, col, value, formula, comment, sheet_name, is_merged_origin)
+    Each tuple contains:
+        (row, col, value, formula, comment, sheet_name, is_merged_origin)
 
     Hidden or veryHidden sheets get '[HIDDEN]' appended to sheet_name.
     Empty cells (value is None and no formula and no comment) are skipped.
     Duplicate (row, col) entries merge the comment into the first seen cell.
+
+    Args:
+        worksheet: An openpyxl Worksheet object.
+        sheet_name: Display name of the sheet.
+        sheet_state: Sheet visibility state ('visible', 'hidden', or 'veryHidden').
+
+    Returns:
+        A list of 7-element tuples, one per non-empty cell.
     """
     if sheet_state in ("hidden", "veryHidden"):
         sheet_name = f"{sheet_name}[HIDDEN]"
@@ -107,14 +131,16 @@ def extract_single_sheet(
 def extract_workbook(filepath: str | Path) -> list[list[tuple]]:
     """Open an xlsx workbook and extract all sheets as raw cell tuples.
 
-    FIX 4: workbook is opened exactly once with data_only=False.
+    FIX 4: workbook is opened exactly once with data_only=False to
+    preserve formula strings.
 
     Args:
         filepath: Path to the xlsx file.
 
     Returns:
-        A list of lists — one inner list of tuples per sheet,
-        matching the process_workbook input format.
+        A list of lists, one inner list of 7-element tuples per sheet.
+        Each tuple contains (row, col, value, formula, comment,
+        sheet_name, is_merged_origin).
     """
     filepath = Path(filepath)
     wb = openpyxl.load_workbook(filepath, data_only=False)
