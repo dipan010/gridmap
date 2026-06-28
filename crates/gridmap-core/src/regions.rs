@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use ahash::AHashSet;
 
-use crate::spatial::for_each_neighbor;
+use crate::spatial::query_radius;
 use crate::store::CellStore;
 use crate::types::*;
 
@@ -45,12 +45,13 @@ pub fn detect_regions(store: &mut CellStore, candidate_ids: &[u32]) -> Vec<Regio
 
             let row = store.get_row(id);
             let col = store.get_col(id);
-            // Inline neighbor iteration to avoid per-call Vec allocation
-            for_each_neighbor(store, row, col, NEIGHBOR_RADIUS, |neighbor_id| {
+            let neighbors = query_radius(store, row, col, NEIGHBOR_RADIUS);
+
+            for neighbor_id in neighbors {
                 if candidate_set.contains(&neighbor_id) && visited.insert(neighbor_id) {
                     queue.push_back(neighbor_id);
                 }
-            });
+            }
         }
 
         regions.push(Region {
