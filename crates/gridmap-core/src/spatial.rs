@@ -7,12 +7,15 @@ const TABLE_SIZE: usize = (2 * NEIGHBOR_RADIUS + 1) as usize; // 7
 
 // ---------- Distance table ----------
 
+/// Pre-computed spatial scoring table for cell-to-cell distance within
+/// `NEIGHBOR_RADIUS`. Indexed by `(dr + RADIUS, dc + RADIUS)`.
 #[derive(Debug, Clone)]
 pub struct DistanceTable {
     data: [[f32; TABLE_SIZE]; TABLE_SIZE],
 }
 
 impl DistanceTable {
+    /// Build a new distance table with pre-computed scores for all offsets.
     pub fn new() -> Self {
         let mut data = [[0.0_f32; TABLE_SIZE]; TABLE_SIZE];
 
@@ -68,6 +71,7 @@ impl Default for DistanceTable {
     }
 }
 
+/// Global lazily-initialized distance table singleton.
 pub static DISTANCE_TABLE: LazyLock<DistanceTable> = LazyLock::new(DistanceTable::new);
 
 // ---------- Neighbor query ----------

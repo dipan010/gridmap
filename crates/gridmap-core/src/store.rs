@@ -5,14 +5,22 @@ use crate::types::CellType;
 
 // ---------- Raw input from Python ----------
 
+/// A single cell extracted from a spreadsheet, before columnar storage.
 #[derive(Debug, Clone)]
 pub struct RawCell {
+    /// Zero-based row coordinate.
     pub row: u32,
+    /// Zero-based column coordinate.
     pub col: u32,
+    /// Cell display value as a string.
     pub value: String,
+    /// Formula string (e.g., "=SUM(A1:B5)"), empty if no formula.
     pub formula: String,
+    /// Comment annotation text, empty if no comment.
     pub comment: String,
+    /// Name of the sheet this cell belongs to.
     pub sheet_name: String,
+    /// Whether this cell is the origin of a merged cell range.
     pub is_merged_origin: bool,
 }
 
@@ -38,13 +46,19 @@ pub struct CellStore {
     pub(crate) merged_flags: BooleanArray,
 
     // -- Mutable workspace (Vec-backed) --
+    /// Cell classification (CellType as u8). Written by `classify_cells`.
     pub cell_types: Vec<u8>,
+    /// Normalized cell values (lowercased, separators stripped). Written by `precompute_features`.
     pub normalized_values: Vec<String>,
+    /// Bitmask feature flags per cell. Written by `precompute_features`.
     pub feature_flags: Vec<u16>,
+    /// Shannon entropy per cell. Written by `precompute_features`.
     pub entropy: Vec<f32>,
+    /// Region ID per cell (-1 if unassigned). Written by `detect_regions`.
     pub region_ids: Vec<i32>,
 
     // -- Lookup index --
+    /// Map from (row, col) coordinate to cell index for O(1) spatial lookups.
     pub coord_to_id: AHashMap<(u32, u32), u32>,
 }
 
