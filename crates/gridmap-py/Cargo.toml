@@ -3,6 +3,12 @@ name = "gridmap-py"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "PyO3 bindings for gridmap spatial credential detection engine"
+authors = ["Dipan Ghosh"]
+keywords = ["dlp", "credentials", "security", "pyo3"]
+categories = ["api-bindings"]
+repository = "https://github.com/dipanghosh/gridmap"
+readme = "../../README.md"
 
 [lib]
 name = "_core"
