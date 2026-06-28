@@ -77,7 +77,20 @@ pub static DISTANCE_TABLE: LazyLock<DistanceTable> = LazyLock::new(DistanceTable
 /// contains ALL cells (FIX 2).
 pub fn query_radius(store: &CellStore, row: u32, col: u32, radius: i32) -> Vec<u32> {
     let mut result = Vec::new();
+    for_each_neighbor(store, row, col, radius, |cell_id| {
+        result.push(cell_id);
+    });
+    result
+}
 
+/// Iterate neighbors without allocating a Vec.
+/// Calls `f(cell_id)` for each cell within `radius` of (row, col),
+/// excluding the center cell itself.
+#[inline]
+pub fn for_each_neighbor<F>(store: &CellStore, row: u32, col: u32, radius: i32, mut f: F)
+where
+    F: FnMut(u32),
+{
     for dr in -radius..=radius {
         for dc in -radius..=radius {
             if dr == 0 && dc == 0 {
@@ -92,12 +105,10 @@ pub fn query_radius(store: &CellStore, row: u32, col: u32, radius: i32) -> Vec<u
             }
 
             if let Some(&cell_id) = store.coord_to_id.get(&(nr as u32, nc as u32)) {
-                result.push(cell_id);
+                f(cell_id);
             }
         }
     }
-
-    result
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use ahash::AHashMap;
-use arrow2::array::{Array, BooleanArray, UInt32Array, Utf8Array};
+use arrow2::array::{Array, BooleanArray, MutableUtf8Array, UInt32Array, Utf8Array};
 
 use crate::types::CellType;
 
@@ -51,18 +51,22 @@ pub struct CellStore {
 impl CellStore {
     /// Build a `CellStore` from raw cell input.
     ///
-    /// Collects into temporary `Vec`s first (needed for FIX 3 comment
-    /// merge dedup), then converts immutable columns to Arrow arrays.
+    /// Uses `MutableUtf8Array` for write-once string columns (values,
+    /// formulas, sheet_names) to build Arrow arrays incrementally during
+    /// collection, avoiding the separate Vec→Arrow copy pass.
+    /// Comments use `Vec<String>` because FIX 3 comment merge requires
+    /// random-access mutation of existing entries.
     pub fn from_raw(cells: Vec<RawCell>) -> Self {
         let cap = cells.len();
 
-        // Temporary Vec collectors for immutable data
         let mut t_rows: Vec<u32> = Vec::with_capacity(cap);
         let mut t_cols: Vec<u32> = Vec::with_capacity(cap);
-        let mut t_values: Vec<String> = Vec::with_capacity(cap);
-        let mut t_formulas: Vec<String> = Vec::with_capacity(cap);
+        // Write-once string columns: build Arrow arrays incrementally
+        let mut m_values: MutableUtf8Array<i32> = MutableUtf8Array::with_capacity(cap);
+        let mut m_formulas: MutableUtf8Array<i32> = MutableUtf8Array::with_capacity(cap);
+        let mut m_sheet_names: MutableUtf8Array<i32> = MutableUtf8Array::with_capacity(cap);
+        // Comments need Vec<String> for FIX 3 random-access mutation
         let mut t_comments: Vec<String> = Vec::with_capacity(cap);
-        let mut t_sheet_names: Vec<String> = Vec::with_capacity(cap);
         let mut t_merged: Vec<bool> = Vec::with_capacity(cap);
 
         let mut coord_to_id: AHashMap<(u32, u32), u32> = AHashMap::with_capacity(cap);
@@ -89,23 +93,25 @@ impl CellStore {
 
             t_rows.push(cell.row);
             t_cols.push(cell.col);
-            t_values.push(cell.value);
-            t_formulas.push(cell.formula);
+            // Push into MutableUtf8Array (copies bytes into contiguous
+            // buffer incrementally — no second-pass copy needed)
+            m_values.push(Some(cell.value.as_str()));
+            m_formulas.push(Some(cell.formula.as_str()));
+            m_sheet_names.push(Some(cell.sheet_name.as_str()));
             t_comments.push(cell.comment);
-            t_sheet_names.push(cell.sheet_name);
             t_merged.push(cell.is_merged_origin);
         }
 
         let n = t_rows.len();
 
-        // Convert immutable data to Arrow arrays
+        // Convert to immutable Arrow arrays
         let rows = UInt32Array::from_vec(t_rows);
         let cols = UInt32Array::from_vec(t_cols);
-        let values = Utf8Array::<i32>::from_iter_values(t_values.iter().map(|s| s.as_str()));
-        let formulas = Utf8Array::<i32>::from_iter_values(t_formulas.iter().map(|s| s.as_str()));
+        let values: Utf8Array<i32> = m_values.into();
+        let formulas: Utf8Array<i32> = m_formulas.into();
+        let sheet_names: Utf8Array<i32> = m_sheet_names.into();
+        // Comments still need the iter copy (Vec<String> for FIX 3)
         let comments = Utf8Array::<i32>::from_iter_values(t_comments.iter().map(|s| s.as_str()));
-        let sheet_names =
-            Utf8Array::<i32>::from_iter_values(t_sheet_names.iter().map(|s| s.as_str()));
         let merged_flags = BooleanArray::from_slice(t_merged);
 
         // Initialize mutable workspace
