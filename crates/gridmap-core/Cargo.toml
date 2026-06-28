@@ -3,6 +3,12 @@ name = "gridmap-core"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Spatial document graph engine for credential detection in spreadsheets"
+authors = ["Dipan Ghosh"]
+keywords = ["dlp", "credentials", "security", "spreadsheet"]
+categories = ["text-processing", "parser-implementations"]
+repository = "https://github.com/dipanghosh/gridmap"
+readme = "../../README.md"
 
 [dependencies]
 ahash = "0.8"
