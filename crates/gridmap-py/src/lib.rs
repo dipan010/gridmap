@@ -1,3 +1,9 @@
+//! PyO3 bindings for gridmap-core.
+//!
+//! This crate provides Python-callable wrappers around the gridmap detection
+//! pipeline. It handles type conversion between Python tuples/dicts and Rust
+//! types — no detection logic lives here.
+
 // PyO3 0.22 proc macros generate code that triggers this clippy lint
 #![allow(clippy::useless_conversion)]
 
