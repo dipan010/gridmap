@@ -26,3 +26,5 @@ bench/fixtures/14_merged_cells.xlsx
 bench/fixtures/10_with_context.xlsx
 bench/fixtures/07_split_password.xlsx
 bench/fixtures/12_multilingual.xlsx
+crates/gridmap-core/benches/PROFILING_RESULTS.md
+RELEASE_CHECKLIST.md

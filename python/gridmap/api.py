@@ -108,6 +108,14 @@ def load(filepath: str | Path) -> GridDoc:
     if filepath.suffix.lower() != ".xlsx":
         raise ValueError(f"Expected .xlsx file, got: {filepath.suffix}")
 
+    with open(filepath, "rb") as f:
+        magic = f.read(4)
+    if magic != b"PK\x03\x04":
+        raise ValueError(
+            f"File does not appear to be a valid .xlsx file "
+            f"(expected ZIP/OOXML signature, got {magic!r})"
+        )
+
     sheets = extract_workbook(filepath)
 
     sheet_count = len(sheets)

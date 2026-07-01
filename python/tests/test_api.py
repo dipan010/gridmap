@@ -82,6 +82,22 @@ def test_load_non_xlsx_raises(tmp_path):
         load(p)
 
 
+def test_load_wrong_content_raises(tmp_path):
+    """A .xlsx file that is actually CSV should be rejected by magic-byte check."""
+    p = tmp_path / "fake.xlsx"
+    p.write_text("a,b,c\n1,2,3")
+    with pytest.raises(ValueError, match=r"ZIP/OOXML signature"):
+        load(p)
+
+
+def test_load_legacy_xls_raises(tmp_path):
+    """A legacy .xls (OLE2) file renamed to .xlsx should be rejected."""
+    p = tmp_path / "legacy.xlsx"
+    p.write_bytes(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" + b"\x00" * 100)
+    with pytest.raises(ValueError, match=r"ZIP/OOXML signature"):
+        load(p)
+
+
 # ---------- GridDoc.relationships ----------
 
 
