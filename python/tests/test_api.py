@@ -75,10 +75,11 @@ def test_load_nonexistent_raises():
         load("/tmp/does_not_exist_gridmap_test.xlsx")
 
 
-def test_load_non_xlsx_raises(tmp_path):
-    p = tmp_path / "test.csv"
-    p.write_text("a,b,c")
-    with pytest.raises(ValueError, match=r"\.xlsx"):
+def test_load_unsupported_extension_raises(tmp_path):
+    """An unsupported file extension should be rejected."""
+    p = tmp_path / "test.docx"
+    p.write_text("not a spreadsheet")
+    with pytest.raises(ValueError, match=r"Unsupported file extension"):
         load(p)
 
 
@@ -86,16 +87,49 @@ def test_load_wrong_content_raises(tmp_path):
     """A .xlsx file that is actually CSV should be rejected by magic-byte check."""
     p = tmp_path / "fake.xlsx"
     p.write_text("a,b,c\n1,2,3")
-    with pytest.raises(ValueError, match=r"ZIP/OOXML signature"):
+    with pytest.raises(ValueError, match=r"signature"):
         load(p)
 
 
-def test_load_legacy_xls_raises(tmp_path):
+def test_load_legacy_xls_content_in_xlsx_raises(tmp_path):
     """A legacy .xls (OLE2) file renamed to .xlsx should be rejected."""
     p = tmp_path / "legacy.xlsx"
     p.write_bytes(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" + b"\x00" * 100)
-    with pytest.raises(ValueError, match=r"ZIP/OOXML signature"):
+    with pytest.raises(ValueError, match=r"signature"):
         load(p)
+
+
+def test_load_csv(tmp_path):
+    """CSV files should be loadable through the pipeline."""
+    p = tmp_path / "creds.csv"
+    p.write_text("Password,s3cret!!\nToken,abc123")
+    doc = load(p)
+    assert isinstance(doc, GridDoc)
+    assert doc.sheet_count == 1
+    assert doc.cell_count == 4
+
+
+def test_load_tsv(tmp_path):
+    """TSV files should be loadable through the pipeline."""
+    p = tmp_path / "data.tsv"
+    p.write_text("Password\ts3cret!!\nToken\tabc123")
+    doc = load(p)
+    assert isinstance(doc, GridDoc)
+    assert doc.sheet_count == 1
+    assert doc.cell_count == 4
+
+
+def test_load_xlsm(tmp_xlsx):
+    """xlsm files should be loadable (openpyxl supports them natively)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "Password"
+    ws["B1"] = "s3cret!!"
+    p = tmp_xlsx(wb, name="test.xlsm")
+    wb.close()
+    doc = load(p)
+    assert isinstance(doc, GridDoc)
+    assert doc.cell_count == 2
 
 
 # ---------- GridDoc.relationships ----------
