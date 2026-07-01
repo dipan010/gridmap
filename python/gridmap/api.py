@@ -4,9 +4,42 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from gridmap import _core
-from gridmap.extract import extract_workbook
+from gridmap.extract import extract_xlsx
+
+# Format registry: extension -> (magic_bytes or None, extractor function)
+# Lazy imports for optional deps are handled inside the extractor functions.
+_FORMAT_REGISTRY: dict[str, tuple[bytes | None, Callable[..., list[list[tuple]]]]] = {}
+
+
+def _build_format_registry() -> dict[str, tuple[bytes | None, Callable[..., list[list[tuple]]]]]:
+    """Build the format dispatch table.
+
+    Extractor functions for optional dependencies (xlrd, odfpy) use lazy
+    imports so that ImportError is raised only when the format is used.
+    """
+    from gridmap.extract.csv_tsv import extract_csv
+    from gridmap.extract.ods import extract_ods
+    from gridmap.extract.xls import extract_xls
+
+    return {
+        ".xlsx": (b"PK\x03\x04", extract_xlsx),
+        ".xlsm": (b"PK\x03\x04", extract_xlsx),
+        ".xls": (b"\xd0\xcf\x11\xe0", extract_xls),
+        ".csv": (None, extract_csv),
+        ".tsv": (None, extract_csv),
+        ".ods": (b"PK\x03\x04", extract_ods),
+    }
+
+
+def _get_format_registry() -> dict[str, tuple[bytes | None, Callable[..., list[list[tuple]]]]]:
+    """Return the format registry, building it on first access."""
+    global _FORMAT_REGISTRY  # noqa: PLW0603
+    if not _FORMAT_REGISTRY:
+        _FORMAT_REGISTRY = _build_format_registry()
+    return _FORMAT_REGISTRY
 
 
 @dataclass(frozen=True)
@@ -38,11 +71,11 @@ class Relationship:
 
 @dataclass(frozen=True)
 class GridDoc:
-    """Result of processing an xlsx file through the gridmap engine.
+    """Result of processing a spreadsheet file through the gridmap engine.
 
     Attributes:
-        filepath: Path to the source xlsx file.
-        sheet_count: Number of sheets in the workbook.
+        filepath: Path to the source spreadsheet file.
+        sheet_count: Number of sheets (or 1 for single-sheet formats like CSV).
         cell_count: Total number of non-empty cells across all sheets.
     """
 
@@ -76,21 +109,26 @@ class GridDoc:
 
 
 def load(filepath: str | Path) -> GridDoc:
-    """Load an xlsx file and run the credential detection engine.
+    """Load a spreadsheet file and run the credential detection engine.
 
-    Opens the workbook, extracts all cells (including formulas, comments,
-    merged cells, and hidden sheets), sends them through the Rust detection
-    pipeline, and returns the results as a GridDoc.
+    Supports .xlsx, .xlsm, .xls, .csv, .tsv, and .ods formats.
+    Opens the file, extracts all cells, sends them through the Rust
+    detection pipeline, and returns the results as a GridDoc.
 
     Args:
-        filepath: Path to an xlsx file. Accepts both str and pathlib.Path.
+        filepath: Path to a spreadsheet file. Accepts both str and
+            pathlib.Path. Supported extensions: .xlsx, .xlsm, .xls,
+            .csv, .tsv, .ods.
 
     Returns:
-        A GridDoc containing all detected relationships and workbook metadata.
+        A GridDoc containing all detected relationships and file metadata.
 
     Raises:
         FileNotFoundError: If the file does not exist.
-        ValueError: If the file does not have an .xlsx extension.
+        ValueError: If the file extension is unsupported or the file
+            content does not match the expected format.
+        ImportError: If an optional dependency is missing for the
+            requested format (.xls requires xlrd, .ods requires odfpy).
 
     Example::
 
@@ -105,18 +143,28 @@ def load(filepath: str | Path) -> GridDoc:
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")
 
-    if filepath.suffix.lower() != ".xlsx":
-        raise ValueError(f"Expected .xlsx file, got: {filepath.suffix}")
+    registry = _get_format_registry()
+    ext = filepath.suffix.lower()
 
-    with open(filepath, "rb") as f:
-        magic = f.read(4)
-    if magic != b"PK\x03\x04":
+    if ext not in registry:
+        supported = ", ".join(sorted(registry.keys()))
         raise ValueError(
-            f"File does not appear to be a valid .xlsx file "
-            f"(expected ZIP/OOXML signature, got {magic!r})"
+            f"Unsupported file extension: {ext}. "
+            f"Supported formats: {supported}"
         )
 
-    sheets = extract_workbook(filepath)
+    magic_bytes, extractor = registry[ext]
+
+    if magic_bytes is not None:
+        with open(filepath, "rb") as f:
+            magic = f.read(len(magic_bytes))
+        if magic != magic_bytes:
+            raise ValueError(
+                f"File does not appear to be a valid {ext} file "
+                f"(expected {magic_bytes!r} signature, got {magic!r})"
+            )
+
+    sheets = extractor(filepath)
 
     sheet_count = len(sheets)
     cell_count = sum(len(s) for s in sheets)

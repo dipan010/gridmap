@@ -1,4 +1,4 @@
-"""Extract raw cell tuples from xlsx files via openpyxl.
+"""Extract raw cell tuples from xlsx/xlsm files via openpyxl.
 
 FIX 4: workbook is opened exactly once with data_only=False.
 FIX 3: duplicate (row, col) entries merge comments into the existing cell.
@@ -128,14 +128,14 @@ def extract_single_sheet(
     return cells
 
 
-def extract_workbook(filepath: str | Path) -> list[list[tuple]]:
-    """Open an xlsx workbook and extract all sheets as raw cell tuples.
+def extract_xlsx(filepath: str | Path) -> list[list[tuple]]:
+    """Open an xlsx/xlsm workbook and extract all sheets as raw cell tuples.
 
     FIX 4: workbook is opened exactly once with data_only=False to
     preserve formula strings.
 
     Args:
-        filepath: Path to the xlsx file.
+        filepath: Path to the xlsx or xlsm file.
 
     Returns:
         A list of lists, one inner list of 7-element tuples per sheet.
