@@ -8,6 +8,11 @@ description = "Spatial document graph engine for credential detection in spreads
 requires-python = ">=3.9"
 dependencies = ["openpyxl"]
 dynamic = ["version"]
+
+[project.optional-dependencies]
+xls = ["xlrd>=2.0"]
+ods = ["odfpy>=1.4"]
+all = ["xlrd>=2.0", "odfpy>=1.4"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 authors = [
